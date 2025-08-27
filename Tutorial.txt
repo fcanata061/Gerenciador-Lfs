@@ -1,0 +1,170 @@
+===============================
+ Linux From Scratch com lfs.sh
+===============================
+
+Este tutorial mostra como usar o script `lfs.sh` para criar e manter
+um sistema Linux From Scratch completo, com suporte a toolchain,
+empacotamento, dependências e rollback.
+
+--------------------------------
+ 1. Instalação do lfs.sh
+--------------------------------
+
+1. Baixe ou copie o script para /usr/local/bin:
+
+   # curl -L -o /usr/local/bin/lfs.sh https://exemplo.com/lfs.sh
+   # chmod +x /usr/local/bin/lfs.sh
+
+2. Garanta que você possui os utilitários necessários:
+   - sh (POSIX), curl, git, tar, gzip, bzip2, xz, zstd
+   - patch, fakeroot, make, gcc, unzip
+   - opcional: 7z
+
+3. Configure variáveis principais (se quiser mudar defaults):
+   export REPO=/srv/recipes
+   export LFS=/mnt/lfs
+
+--------------------------------
+ 2. Estrutura de diretórios
+--------------------------------
+
+O `lfs.sh` espera esta árvore:
+
+/srv/recipes/
+ ├── base/
+ │    ├── gcc-12.1/
+ │    │     ├── gcc-12.1.recipe
+ │    │     └── gcc-12.1-toolchain.recipe
+ │    └── zlib-1.3/
+ │          └── zlib-1.3.recipe
+ ├── x11/
+ │    └── ...
+ ├── extras/
+ │    └── ...
+ └── desktop/
+      └── ...
+
+/var/lib/lfsdb/        -> banco de pacotes instalados
+/var/cache/lfs-pkgs/   -> cache de pacotes construídos (.tar.zst)
+/var/log/lfsbuild/     -> logs de compilação
+/var/tmp/lfs-work/     -> diretório de build temporário
+/etc/lfs/hooks/        -> hooks pós-remove
+
+--------------------------------
+ 3. Uso básico
+--------------------------------
+
+* Listar ajuda:
+  $ lfs.sh --help
+
+* Sincronizar receitas (repositório git):
+  # lfs.sh sync
+
+* Construir o toolchain (em /mnt/lfs/tools):
+  # lfs.sh toolchain
+
+* Instalar pacotes normais (com deps):
+  # lfs.sh install zlib
+  # lfs.sh install gcc
+
+* Remover pacote:
+  # lfs.sh remove zlib
+
+* Fazer rollback para versão cacheada:
+  # lfs.sh rollback zlib 1.3
+
+* Ver info de pacote:
+  # lfs.sh info gcc
+
+* Checar dependências quebradas:
+  # lfs.sh revdep
+
+* Atualizar pacotes:
+  # lfs.sh upgrade gcc
+  # lfs.sh upgrade-all
+
+* Reconstruir todo o sistema:
+  # lfs.sh rebuild-all
+
+--------------------------------
+ 4. Usando o Toolchain
+--------------------------------
+
+O comando `toolchain` busca receitas com `TOOLCHAIN=1` e constrói em:
+
+   /mnt/lfs/tools
+
+Exemplo:
+   # lfs.sh toolchain
+
+O script irá:
+ - exportar LFS_TGT=$(uname -m)-lfs-linux-gnu
+ - usar prefixo /mnt/lfs/tools
+ - instalar binutils/gcc/glibc básicos
+ - registrar no DB do LFS
+
+Depois disso, você pode usar `chroot` no `$LFS` para continuar o build.
+
+--------------------------------
+ 5. Exemplos de Receitas
+--------------------------------
+
+==== 5.1 gcc-12.1-toolchain.recipe ====
+Arquivo: /srv/recipes/base/gcc-12.1/gcc-12.1-toolchain.recipe
+
+NAME=gcc
+VERSION=12.1
+TOOLCHAIN=1
+URLS=\"https://ftp.gnu.org/gnu/gcc/gcc-12.1.0/gcc-12.1.0.tar.xz\"
+DEPENDS=\"gmp mpfr mpc\"
+CONFIGURE=\"../gcc-12.1.0/configure --target=$LFS_TGT --prefix=$LFS/tools \\
+  --with-glibc-version=2.36 --with-newlib --without-headers \\
+  --enable-initfini-array --disable-nls --disable-shared \\
+  --disable-multilib --disable-decimal-float --disable-threads \\
+  --disable-libatomic --disable-libgomp --disable-libquadmath \\
+  --disable-libssp --disable-libvtv --disable-libstdcxx \\
+  --enable-languages=c,c++\"
+BUILD=\"make -j$JOBS\"
+INSTALL=\"make install\"
+
+==== 5.2 gcc-12.1.recipe ====
+Arquivo: /srv/recipes/base/gcc-12.1/gcc-12.1.recipe
+
+NAME=gcc
+VERSION=12.1
+URLS=\"https://ftp.gnu.org/gnu/gcc/gcc-12.1.0/gcc-12.1.0.tar.xz\"
+DEPENDS=\"gmp mpfr mpc isl zlib\"
+CONFIGURE=\"../gcc-12.1.0/configure --prefix=/usr \\
+  --disable-multilib --enable-languages=c,c++ --enable-shared \\
+  --enable-threads=posix\"
+BUILD=\"make -j$JOBS\"
+INSTALL=\"make DESTDIR=\\\"$DESTDIR\\\" install\"
+POST_INSTALL=\"ldconfig\"
+
+==== 5.3 firefox-102.recipe ====
+Arquivo: /srv/recipes/extras/firefox-102/firefox-102.recipe
+
+NAME=firefox
+VERSION=102.0
+URLS=\"https://ftp.mozilla.org/pub/firefox/releases/102.0/source/firefox-102.0.source.tar.xz\"
+DEPENDS=\"gtk3 libffi dbus alsa-lib mesa zlib libpng\"
+PATCHES=\"https://example.com/patches/firefox-102-system-lib.patch\"
+CONFIGURE=\"./mach configure --prefix=/usr --enable-release\"
+BUILD=\"./mach build -j$JOBS\"
+INSTALL=\"DESTDIR=\\\"$DESTDIR\\\" ./mach install\"
+POST_INSTALL=\"update-desktop-database || true\"
+
+--------------------------------
+ 6. Dicas finais
+--------------------------------
+
+- Sempre mantenha seu repositório de receitas sincronizado:
+  # lfs.sh sync
+
+- Use rollback para desfazer pacotes problemáticos.
+
+- Para empacotar patches locais, basta referenciá-los em PATCHES:
+  PATCHES=\"/path/local.patch\"
+
+- Para rebuild total: 
+  # lfs.sh rebuild-all
